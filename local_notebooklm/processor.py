@@ -67,9 +67,9 @@ def chunk_text(
     """
     # Chunking presets tuned for typical LLM context windows (characters approximation)
     presets = {
-        "short": {"max_chunk_size": 3000, "overlap": 120, "max_chunks": 6},
+        "long": {"max_chunk_size": 3000, "overlap": 120, "max_chunks": 6},
         "medium": {"max_chunk_size": 6000, "overlap": 200, "max_chunks": 12},
-        "long": {"max_chunk_size": 10000, "overlap": 300, "max_chunks": 999999},
+        "short": {"max_chunk_size": 10000, "overlap": 300, "max_chunks": 999999},
     }
     cfg = presets[length]
     logger.debug(f"Chunking config chosen: {cfg} for length='{length}'")
@@ -243,7 +243,7 @@ that matches the requested audio style.
     if custom_preferences is not None:
         system_prompt += f"- Apply the following user preferences: {custom_preferences}\n"
 
-    system_prompt += """
+    system_prompt += f"""
 ========================
 ### OUTPUT RULES
 - Always output a **valid JSON object** with a top-level key "transcript".
@@ -252,13 +252,13 @@ that matches the requested audio style.
 - No markdown, no commentary, no titles.
 
 Example:
-{
+{{
   "transcript": [
-    { "speaker": "Speaker 1", "text": "Welcome!" },
-    { "speaker": "Speaker 2", "text": "Glad to be here." },
-    { "speaker": "Speaker N", "text": "Glad to be here too." }
+    {{ "speaker": "Speaker 1", "text": "Welcome!" }},
+    {{ "speaker": "Speaker 2", "text": "Glad to be here." }},
+    {{ "speaker": "Speaker N", "text": "Glad to be here too." }}
   ]
-}
+}}
 
 ========================
 ### CONTENT RULES
@@ -308,8 +308,14 @@ Example:
         raise
 
 # ========== TTS ==========
-def generate_audio(transcript: List[Tuple[str, str]], client: OpenAI, tts_model: str,
-                   voices: dict, output_dir: Path, format: str = "wav") -> str:
+def generate_audio(
+        transcript: List[Tuple[str, str]],
+        client: OpenAI,
+        voices: dict,
+        output_dir: Path,
+        tts_model: str = "kokoro",
+        format: str = "wav"
+    ) -> str:
     segments_dir = output_dir / "segments"
     segments_dir.mkdir(parents=True, exist_ok=True)
 
@@ -343,7 +349,6 @@ def generate_audio(
     pdf_path: str,
     output_dir: str = "./output",
     llm_model: str = "qwen3:30b-a3b-instruct-2507-q4_K_M",
-    tts_model: str = "kokoro-tts",
     language: str = "english",
     format_type: Literal[
         "podcast", "narration", "interview", "panel-discussion", "summary", "article", "lecture",
@@ -356,7 +361,7 @@ def generate_audio(
     num_speakers: Optional[int] = None,
     custom_preferences: Optional[str] = None
 ):
-    logger.info(f"generate_audio called with parameters: pdf_path={pdf_path}, output_dir={output_dir}, llm_model={llm_model}, tts_model={tts_model}, language={language}, format_type={format_type}, style={style}, length={length}, num_speakers={num_speakers}, custom_preferences={custom_preferences}")
+    logger.info(f"generate_audio called with parameters: pdf_path={pdf_path}, output_dir={output_dir}, llm_model={llm_model}, language={language}, format_type={format_type}, style={style}, length={length}, num_speakers={num_speakers}, custom_preferences={custom_preferences}")
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -382,6 +387,6 @@ def generate_audio(
         "Speaker 5": "am_adam",
         "default": "af_nova"
     }
-    audio_file = generate_audio(transcript, kokoro_client, tts_model, voices, output_dir)
+    audio_file = generate_audio(transcript, kokoro_client, voices, output_dir)
 
     logger.info(f"✅ Audio generated at: {audio_file}")

@@ -3,3 +3,7 @@ numpy
 soundfile
 openai
 tqdm
+pydantic
+gradio
+fastapi
+uvicorn
