@@ -1,6 +1,0 @@
-fastapi
-uvicorn
-python-multipart
-gradio
-pydantic
-local-notebooklm==1.2.2

@@ -67,9 +67,9 @@ def chunk_text(
     """
     # Chunking presets tuned for typical LLM context windows (characters approximation)
     presets = {
-        "long": {"max_chunk_size": 3000, "overlap": 120, "max_chunks": 6},
+        "short": {"max_chunk_size": 3000, "overlap": 120, "max_chunks": 6},
         "medium": {"max_chunk_size": 6000, "overlap": 200, "max_chunks": 12},
-        "short": {"max_chunk_size": 10000, "overlap": 300, "max_chunks": 999999},
+        "long": {"max_chunk_size": 10000, "overlap": 300, "max_chunks": 999999},
     }
     cfg = presets[length]
     logger.debug(f"Chunking config chosen: {cfg} for length='{length}'")
