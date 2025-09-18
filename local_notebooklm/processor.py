@@ -116,6 +116,14 @@ def generate_transcript_from_pdf(
     chunks = chunk_text(text, length=length)
     total_chunks = len(chunks)
     logger.info(f"Starting to process {total_chunks} chunks for transcript generation...")
+    # Only generate characters for long transcripts
+    characters = None
+    if length == "long":
+        characters = generate_characters(
+            client, model, format_type,
+            num_speakers=num_speakers,
+            custom_preferences=custom_preferences
+        )
     all_transcript = []
     for i, chunk in enumerate(chunks):
         is_first = (i == 0)
@@ -137,11 +145,12 @@ def generate_transcript_from_pdf(
             combined_chunk += "\n\n[Include a closing goodbye appropriate to the format.]"
         else:
             combined_chunk += "\n\n[Do not include greetings or closings in this chunk.]"
-        # Call generate_characters with num_speakers and custom_preferences
+        # Pass characters to generate_transcript
         chunk_transcript = generate_transcript(
             combined_chunk, client, model, language, format_type=format_type,
             is_first=is_first, is_last=is_last, style=style, length=length,
-            num_speakers=num_speakers, custom_preferences=custom_preferences
+            num_speakers=num_speakers, custom_preferences=custom_preferences,
+            characters=characters
         )
         all_transcript.extend(chunk_transcript)
     logger.info("Completed generating transcripts for all chunks.")
@@ -164,7 +173,8 @@ def generate_transcript(
     ] = "normal",
     length: Literal["short", "medium", "long"] = "medium",
     num_speakers: Optional[int] = None,
-    custom_preferences: Optional[str] = None
+    custom_preferences: Optional[str] = None,
+    characters: Optional[list] = None
 ) -> List[Tuple[str, str]]:
     """
     Generate a audio transcript as a list of (speaker, text) tuples.
@@ -232,8 +242,8 @@ that matches the requested audio style.
 {guide_text}
 
 ========================
-### RULES
-- At the beginning of every audio, Speaker 1 must introduce the listener this this audio and the topic that will be talked about.
+### CONTENT RULES
+- At the beginning of every audio, Speaker 1 must introduce the audio to the listener.
 - The conversation should sound natural. Filler sounds like "Hmm", "Ahh", "Umm", "Oh", "Yeah", "Haha", "Hehe", "Wow" can appear, but very rarely and only when it feels absolutely natural. Avoid frequent or exaggerated use.
 
 ========================
@@ -245,6 +255,17 @@ that matches the requested audio style.
 - If {format_type} is podcast, interview, q-and-a, or tutorial: use at least 2 speakers.
 - If {format_type} is panel-discussion, debate, meeting, or analysis: use at least 3 speakers (and up to 6).
 """
+    # If characters are provided, add a CHARACTER PROFILES section
+    if characters is not None:
+        import json as _json_internal
+        system_prompt += "\n========================\n### CHARACTER PROFILES\n"
+        for character in characters:
+            # Each character is a dict with 'speaker', 'persona', 'expertise', 'style'
+            speaker = character.get("speaker", "")
+            persona = character.get("persona", "")
+            expertise = character.get("expertise", "")
+            style_ = character.get("style", "")
+            system_prompt += f"- {speaker}: persona: {persona}; expertise: {expertise}; style: {style_}\n"
     if num_speakers is not None:
         system_prompt += f"""
 ========================
@@ -311,7 +332,9 @@ Example:
 
     try:
         result = safe_json_loads(raw)
+        # Normalize output: wrap fallback keys like "closing", "opening", or "error" into transcript if needed
         if isinstance(result, dict) and "transcript" not in result:
+            # Wrap fallback keys into transcript format
             if "closing" in result:
                 result = {"transcript": [{"speaker": "Speaker 1", "text": result["closing"]}]}
             elif "opening" in result:
