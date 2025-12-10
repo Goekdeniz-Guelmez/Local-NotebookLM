@@ -608,6 +608,10 @@ Gökdeniz Gülmez
 
 ---
 
+![Alt](https://repobeats.axiom.co/api/embed/28af9fd2bc35cdc4974f5766dd60c1fa9323a4a2.svg "Repobeats analytics image")
+
+---
+
 ## Citing Local-NotebookLM
 
 The Local-NotebookLM software suite was developed by Gökdeniz Gülmez. If you find Local-NotebookLM useful in your research and wish to cite it, please use the following
