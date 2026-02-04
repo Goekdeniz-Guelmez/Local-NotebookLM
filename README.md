@@ -599,10 +599,6 @@ Full requirements are listed in `requirements.txt`.
 - This project uses various open-source libraries and models
 - Special thanks to the developers of LLaMA, OpenAI, and other AI models that make this possible
 
----
-
-For more information, visit the [GitHub repository](https://github.com/Goekdeniz-Guelmez/Local-NotebookLM).
-
 Best
 Gökdeniz Gülmez
 
