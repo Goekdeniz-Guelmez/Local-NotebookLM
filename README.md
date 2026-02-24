@@ -18,14 +18,18 @@ A local AI-powered tool that converts PDF documents into engaging audio—such a
 #### Here are quick examples, can you guess what paper they're talking about?
 
 <audio controls>
-  <source src="./examples/podcast_example_casual.wav" type="audio/mpeg">
-  Your browser does not support the audio element. You can manualy download the file here './examples/podcast.wav'.
+    <source src="https://raw.githubusercontent.com/Goekdeniz-Guelmez/Local-NotebookLM/main/examples/podcast_example_casual.wav" type="audio/wav">
+    Your browser does not support the audio element. You can manually listen/download here: <a href="https://raw.githubusercontent.com/Goekdeniz-Guelmez/Local-NotebookLM/main/examples/podcast_example_casual.wav">Casual example</a>.
 </audio>
 
 <audio controls>
-  <source src="./examples/podcast_example_genz.wav" type="audio/mpeg">
-  Your browser does not support the audio element. You can manualy download the file here './examples/podcast.wav'.
+    <source src="https://raw.githubusercontent.com/Goekdeniz-Guelmez/Local-NotebookLM/main/examples/podcast_example_genz.wav" type="audio/wav">
+    Your browser does not support the audio element. You can manually listen/download here: <a href="https://raw.githubusercontent.com/Goekdeniz-Guelmez/Local-NotebookLM/main/examples/podcast_example_genz.wav">Gen-Z example</a>.
 </audio>
+
+If your browser still blocks embedded playback on GitHub, use direct links:
+- [Casual example (.wav)](https://raw.githubusercontent.com/Goekdeniz-Guelmez/Local-NotebookLM/main/examples/podcast_example_casual.wav)
+- [Gen-Z example (.wav)](https://raw.githubusercontent.com/Goekdeniz-Guelmez/Local-NotebookLM/main/examples/podcast_example_genz.wav)
 
 ## Prerequisites
 
