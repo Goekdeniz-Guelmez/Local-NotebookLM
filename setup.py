@@ -17,7 +17,7 @@ setup(
     license="Apache-2.0",
     # Remove install_requires=requirements,
     packages=find_packages(),
-    python_requires=">=3.12",
+    python_requires=">=3.9",
     classifiers=[
         "Programming Language :: Python :: 3.12"
     ],
