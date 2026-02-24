@@ -36,7 +36,7 @@ If your browser still blocks embedded playback on GitHub, use direct links:
 - Python 3.9+
 - Local LLM server (optional, for local inference)
 - Local TTS server (optional, for local audio generation)
-- At least 8GB RAM (16GB+ recommended for local models)
+- At least 8GB RAM (32GB+ recommended for local models)
 - 10GB+ free disk space
 
 ## Installation
