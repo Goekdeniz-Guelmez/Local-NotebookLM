@@ -15,10 +15,15 @@ A local AI-powered tool that converts PDF documents into engaging audio—such a
 - FastAPI server for web-based access
 - Example podcast included for demonstration
 
-#### Here is a quick example, can you guess what paper they're talking about?
+#### Here are quick examples, can you guess what paper they're talking about?
 
 <audio controls>
-  <source src="./examples/podcast.wav" type="audio/mpeg">
+  <source src="./examples/podcast_example_casual.wav" type="audio/mpeg">
+  Your browser does not support the audio element. You can manualy download the file here './examples/podcast.wav'.
+</audio>
+
+<audio controls>
+  <source src="./examples/podcast_example_genz.wav" type="audio/mpeg">
   Your browser does not support the audio element. You can manualy download the file here './examples/podcast.wav'.
 </audio>
 
