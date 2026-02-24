@@ -124,7 +124,7 @@ python -m local_notebooklm.make_audio --pdf PATH_TO_PDF [options]
 |--------|-------------|---------|
 | `--pdf` | Path to the PDF file (required) | - |
 | `--output_dir` | Directory to store output files | ./output |
-| `--llm_model` | Ollama LLM model name | qwen3:30b-a3b-instruct-2507-q4_K_M |
+| `--llm_model` | Ollama LLM model name | gemini-3-flash-preview:cloud |
 | `--language` | Language for the audio output | english |
 | `--format_type` | Output format type (summary, podcast, article, interview, panel-discussion, debate, narration, storytelling, explainer, lecture, tutorial, q-and-a, news-report, executive-brief, meeting, analysis) | podcast |
 | `--style` | Content style (normal, casual, formal, technical, academic, friendly, gen-z, funny) | normal |
