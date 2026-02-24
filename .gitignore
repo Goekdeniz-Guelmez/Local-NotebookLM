@@ -23,7 +23,7 @@ local_notebooklm/web_ui/output
 gradio
 
 .DS_Store
-.vscode/*
+*.vscode/*
 
 *output/*
 *.output/*
