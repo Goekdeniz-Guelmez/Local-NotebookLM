@@ -21,3 +21,9 @@ local_notebooklm/web_ui/output
 
 .gradio
 gradio
+
+.DS_Store
+.vscode/*
+
+*output/*
+*.output/*

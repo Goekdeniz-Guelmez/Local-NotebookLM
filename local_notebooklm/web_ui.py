@@ -22,6 +22,11 @@ def process_audio(pdf_file, format_type, length, style, language, num_speakers, 
             pdf_path = pdf_file.name
         else:
             pdf_path = pdf_file
+
+        if num_speakers is not None:
+            num_speakers = int(num_speakers)
+            if num_speakers < 1:
+                return "Number of speakers must be at least 1.", None
         
         print(f"Processing with output_dir: {output_dir}")
         
@@ -47,9 +52,12 @@ def process_audio(pdf_file, format_type, length, style, language, num_speakers, 
         return f"An error occurred: {str(e)}\n\nDetails:\n{error_details}", None
 
 def create_gradio_ui():
-    format_options = ["podcast"]
-    length_options = ["medium"]
-    style_options = ["conversational"]
+    format_options = [
+        "podcast", "narration", "interview", "panel-discussion", "summary", "article",
+        "lecture", "q-and-a", "tutorial", "debate", "meeting", "analysis"
+    ]
+    length_options = ["short", "medium", "long"]
+    style_options = ["normal", "formal", "casual", "enthusiastic", "serious", "humorous", "gen-z", "technical"]
     
     with gr.Blocks(title="Local-NotebookLM") as app:
         gr.Markdown("# 🎙️ Local-NotebookLM: PDF to Audio Converter")
@@ -65,7 +73,7 @@ def create_gradio_ui():
                     label="Select Language",
                     value="english"
                 )
-                num_speakers = gr.Number(label="Number of Speakers", value=1, precision=0)
+                num_speakers = gr.Number(label="Number of Speakers", value=2, precision=0)
                 custom_preferences = gr.Textbox(
                     label="Custom Preferences (Optional)",
                     placeholder="Focus on key points, provide examples, etc."

@@ -120,6 +120,7 @@ python -m local_notebooklm.make_audio --pdf PATH_TO_PDF [options]
 | `--format_type` | Output format type (summary, podcast, article, interview, panel-discussion, debate, narration, storytelling, explainer, lecture, tutorial, q-and-a, news-report, executive-brief, meeting, analysis) | podcast |
 | `--style` | Content style (normal, casual, formal, technical, academic, friendly, gen-z, funny) | normal |
 | `--length` | Content length (short, medium, long, very-long) | medium |
+| `--is-vlm` | Enable vision mode so extracted PDF images are also sent to the LLM | False |
 | `--num_speakers` | Number of speakers in audio (1, 2, 3, 4, 5) | 2 (for podcast/interview) |
 | `--custom_preferences` | Additional focus preferences or instructions | None |
 
@@ -170,6 +171,11 @@ python -m local_notebooklm.make_audio --pdf documents/research_paper.pdf --custo
 Specify number of speakers:
 ```bash
 python -m local_notebooklm.make_audio --pdf documents/research_paper.pdf --format_type panel-discussion --num_speakers 3
+```
+
+Enable multimodal transcript generation (text + PDF images):
+```bash
+python -m local_notebooklm.make_audio --pdf documents/research_paper.pdf --is-vlm
 ```
 
 ### Programmatic API

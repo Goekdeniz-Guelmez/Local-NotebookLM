@@ -1,13 +1,18 @@
 import sys
 import json
 import logging
+import re
+import base64
 from pathlib import Path
-from typing import List, Tuple, Literal, Optional
+from typing import List, Tuple, Literal, Optional, Any
 
 import PyPDF2
 import numpy as np
 import soundfile as sf
 from openai import OpenAI
+
+
+ALLOWED_LENGTHS = {"short", "medium", "long"}
 
 
 # ==== Colored logging formatter ====
@@ -34,6 +39,90 @@ logger = logging.getLogger("ai_audio")
 logger.setLevel(logging.DEBUG)
 logger.addHandler(handler)
 logger.propagate = False
+
+
+def _extract_json_candidate(raw: str) -> str:
+    if not raw:
+        return ""
+
+    text = raw.strip()
+
+    fenced = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", text, re.IGNORECASE)
+    if fenced:
+        text = fenced.group(1).strip()
+
+    object_start = text.find("{")
+    object_end = text.rfind("}")
+    array_start = text.find("[")
+    array_end = text.rfind("]")
+
+    object_candidate = (
+        text[object_start:object_end + 1]
+        if object_start != -1 and object_end != -1 and object_start < object_end
+        else ""
+    )
+    array_candidate = (
+        text[array_start:array_end + 1]
+        if array_start != -1 and array_end != -1 and array_start < array_end
+        else ""
+    )
+
+    if object_candidate and array_candidate:
+        return object_candidate if len(object_candidate) >= len(array_candidate) else array_candidate
+    return object_candidate or array_candidate or text
+
+
+def _safe_json_loads(raw: str):
+    try:
+        return json.loads(raw)
+    except Exception:
+        candidate = _extract_json_candidate(raw)
+        if not candidate:
+            raise
+        return json.loads(candidate)
+
+
+def _detect_image_mime(image_bytes: bytes) -> str:
+    if image_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if image_bytes.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if image_bytes.startswith(b"GIF87a") or image_bytes.startswith(b"GIF89a"):
+        return "image/gif"
+    if image_bytes.startswith(b"RIFF") and b"WEBP" in image_bytes[:16]:
+        return "image/webp"
+    return "application/octet-stream"
+
+
+def _extract_pdf_images_as_data_urls(pdf_path: str, max_images: int = 4) -> List[str]:
+    data_urls: List[str] = []
+    if max_images <= 0:
+        return data_urls
+
+    with open(pdf_path, "rb") as file:
+        reader = PyPDF2.PdfReader(file)
+        for page_index, page in enumerate(reader.pages, start=1):
+            page_images = getattr(page, "images", [])
+            if not page_images:
+                continue
+
+            for image in page_images:
+                image_bytes = getattr(image, "data", None)
+                if not image_bytes:
+                    continue
+
+                mime_type = _detect_image_mime(image_bytes)
+                encoded = base64.b64encode(image_bytes).decode("utf-8")
+                data_urls.append(f"data:{mime_type};base64,{encoded}")
+
+                if len(data_urls) >= max_images:
+                    logger.info(f"Reached image limit ({max_images}) while extracting PDF visuals.")
+                    return data_urls
+
+            logger.debug(f"Extracted {len(page_images)} image(s) from page {page_index}.")
+
+    logger.info(f"Extracted {len(data_urls)} image(s) from PDF for VLM prompting.")
+    return data_urls
 
 # ========== PDF EXTRACTION ==========
 def extract_text_from_pdf(pdf_path: str, max_chars: int = 100_000) -> str:
@@ -72,6 +161,9 @@ def chunk_text(
         "medium": {"max_chunk_size": 15_000, "overlap": 300, "max_chunks": 4},   # balanced
         "long":   {"max_chunk_size": 5_000,  "overlap": 200, "max_chunks": 9999999}, # smallest chunks → detailed
     }
+    if length not in presets:
+        raise ValueError(f"Unsupported length '{length}'. Allowed values: {sorted(presets.keys())}")
+
     cfg = presets[length]
     logger.debug(f"Chunking config chosen: {cfg} for length='{length}'")
 
@@ -105,6 +197,7 @@ def generate_transcript_from_pdf(
         "normal", "formal", "casual", "enthusiastic", "serious", "humorous", "gen-z", "technical"
     ] = "normal",
     length: Literal["short", "medium", "long"] = "medium",
+    is_vlm: bool = False,
     num_speakers: Optional[int] = None,
     custom_preferences: Optional[str] = None
 ) -> List[Tuple[str, str]]:
@@ -115,6 +208,19 @@ def generate_transcript_from_pdf(
     logger.info("Splitting text into chunks...")
     chunks = chunk_text(text, length=length)
     total_chunks = len(chunks)
+    pdf_images: Optional[List[str]] = None
+    if is_vlm:
+        max_images_by_length = {"short": 2, "medium": 4, "long": 8}
+        max_images = max_images_by_length.get(length, 4)
+        logger.info(f"VLM mode enabled. Extracting up to {max_images} images from PDF...")
+        try:
+            extracted_images = _extract_pdf_images_as_data_urls(pdf_path, max_images=max_images)
+            if extracted_images:
+                pdf_images = extracted_images
+            else:
+                logger.warning("VLM mode is enabled but no extractable images were found in the PDF.")
+        except Exception as e:
+            logger.warning(f"Image extraction for VLM failed, continuing with text-only prompt. Details: {e}")
     logger.info(f"Starting to process {total_chunks} chunks for transcript generation...")
     # Only generate characters for long transcripts
     characters = None
@@ -150,7 +256,8 @@ def generate_transcript_from_pdf(
             combined_chunk, client, model, language, format_type=format_type,
             is_first=is_first, is_last=is_last, style=style, length=length,
             num_speakers=num_speakers, custom_preferences=custom_preferences,
-            characters=characters
+            characters=characters,
+            images=pdf_images
         )
         all_transcript.extend(chunk_transcript)
     logger.info("Completed generating transcripts for all chunks.")
@@ -174,13 +281,12 @@ def generate_transcript(
     length: Literal["short", "medium", "long"] = "medium",
     num_speakers: Optional[int] = None,
     custom_preferences: Optional[str] = None,
-    characters: Optional[list] = None
+    characters: Optional[list] = None,
+    images: Optional[List[str]] = None
 ) -> List[Tuple[str, str]]:
     """
     Generate a audio transcript as a list of (speaker, text) tuples.
     """
-    import json
-
     format_guides = {
         "podcast": "A conversational and engaging format with multiple speakers, natural flow, and informal tone.",
         "narration": "A single speaker delivering clear, concise, and informative narration.",
@@ -213,20 +319,38 @@ def generate_transcript(
         "long": "Include comprehensive details and extended dialogue for depth."
     }
 
+    greeting_patterns = [
+        r"^\s*(hi|hello|hey|welcome)\b",
+        r"\b(welcome\s+back|good\s+(morning|afternoon|evening))\b",
+    ]
+    closing_patterns = [
+        r"\b(thanks?\s+for\s+listening)\b",
+        r"\b(see\s+you|talk\s+to\s+you)\s+(next\s+time|soon)\b",
+        r"\b(goodbye|bye\b|farewell)\b",
+        r"\b(that'?s\s+all\s+for\s+today)\b",
+    ]
+
+    def _looks_like_greeting(text: str) -> bool:
+        lowered = text.strip().lower()
+        return any(re.search(pattern, lowered) for pattern in greeting_patterns)
+
+    def _looks_like_closing(text: str) -> bool:
+        lowered = text.strip().lower()
+        return any(re.search(pattern, lowered) for pattern in closing_patterns)
+
+    def _strip_middle_chunk_intro_outro(transcript: List[Tuple[str, str]]) -> List[Tuple[str, str]]:
+        cleaned = transcript[:]
+        if len(cleaned) > 1:
+            while len(cleaned) > 1 and _looks_like_greeting(cleaned[0][1]):
+                cleaned.pop(0)
+            while len(cleaned) > 1 and _looks_like_closing(cleaned[-1][1]):
+                cleaned.pop()
+        return cleaned
+
     def safe_json_loads(raw: str):
         try:
-            return json.loads(raw)
-        except json.JSONDecodeError:
-            import re
-            # Cut off at the last closing brace
-            last_brace = raw.rfind("}")
-            if last_brace != -1:
-                raw_fixed = raw[: last_brace + 1]
-                try:
-                    return json.loads(raw_fixed)
-                except Exception:
-                    pass
-            # fallback
+            return _safe_json_loads(raw)
+        except Exception:
             return {"transcript": []}
 
     guide_text = f"""
@@ -243,7 +367,6 @@ that matches the requested audio style.
 
 ========================
 ### CONTENT RULES
-- At the beginning of every audio, Speaker 1 must introduce the audio to the listener.
 - The conversation should sound natural. Filler sounds like "Hmm", "Ahh", "Umm", "Oh", "Yeah", "Haha", "Hehe", "Wow" can appear, but very rarely and only when it feels absolutely natural. Avoid frequent or exaggerated use.
 
 ========================
@@ -257,7 +380,6 @@ that matches the requested audio style.
 """
     # If characters are provided, add a CHARACTER PROFILES section
     if characters is not None:
-        import json as _json_internal
         system_prompt += "\n========================\n### CHARACTER PROFILES\n"
         for character in characters:
             # Each character is a dict with 'speaker', 'persona', 'expertise', 'style'
@@ -310,17 +432,32 @@ Example:
 """
     if is_first:
         system_prompt += "\n- Include an opening greeting appropriate to the format."
+    else:
+        system_prompt += "\n- Do NOT include any introduction, welcome, or greeting."
     if is_last:
         system_prompt += "\n- Include a closing goodbye appropriate to the format."
+    else:
+        system_prompt += "\n- Do NOT include any closing, sign-off, or goodbye."
     if not is_first and not is_last:
-        system_prompt += "\n- Do not include greetings or closings in this chunk."
+        system_prompt += "\n- This is a middle chunk. Continue directly from content with no intro/outro text."
 
     logger.info("Sending request to LLM for transcript generation...")
+    user_content: Any = text
+    if images:
+        user_content = [{"type": "text", "text": text}]
+        for image_data_url in images:
+            user_content.append(
+                {
+                    "type": "image_url",
+                    "image_url": {"url": image_data_url},
+                }
+            )
+
     response = client.chat.completions.create(
         model=model,
         messages=[
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": text},
+            {"role": "user", "content": user_content},
         ],
         temperature=0.6,
         max_tokens=16384,
@@ -352,6 +489,10 @@ Example:
             if not (isinstance(entry, dict) and "speaker" in entry and "text" in entry):
                 raise ValueError(f"Invalid transcript entry: {entry}")
             output.append((entry["speaker"], entry["text"]))
+
+        if not is_first and not is_last:
+            output = _strip_middle_chunk_intro_outro(output)
+
         logger.info("Successfully parsed transcript from LLM response.")
         return output
     except Exception as e:
@@ -378,7 +519,9 @@ def generate_characters(
         system_prompt += f"Incorporate the following preferences into the character creation: {custom_preferences} "
     system_prompt += (
         "For each speaker, provide a short description of their persona, expertise, and speaking style. "
-        "Output a JSON list with one object per speaker, each with keys 'speaker', 'persona', 'expertise', 'style'."
+        "Return ONLY a valid JSON object with this exact shape: "
+        "{\"speakers\": [{\"speaker\": \"Speaker 1\", \"persona\": \"...\", \"expertise\": \"...\", \"style\": \"...\"}]}. "
+        "Do not use markdown code fences. Do not return a top-level array."
     )
     user_prompt = "Generate the list of speakers for the transcript."
     response = client.chat.completions.create(
@@ -391,14 +534,16 @@ def generate_characters(
         max_tokens=2048,
         response_format={"type": "json_object"},
     )
-    import json
     content = response.choices[0].message.content
     try:
-        result = json.loads(content)
+        result = _safe_json_loads(content)
         if isinstance(result, list):
             return result
         elif isinstance(result, dict) and "speakers" in result:
-            return result["speakers"]
+            speakers = result["speakers"]
+            if not isinstance(speakers, list):
+                raise ValueError("'speakers' must be a list")
+            return speakers
         else:
             raise ValueError("Unexpected response format for characters.")
     except Exception as e:
@@ -421,12 +566,14 @@ def generate_tts_audio(
     segments_dir.mkdir(parents=True, exist_ok=True)
 
     audio_segments = []
+    sample_rate = None
+    total_segments = len(transcript)
 
     for i, (speaker, text) in enumerate(transcript, 1):
         voice = voices.get(speaker, voices.get("default", "alloy"))
         logger.debug(f"Voice mapping for {speaker}: {voice}")
         out_file = segments_dir / f"segment_{i}.{format}"
-        logger.info(f"Generating audio segment {i} for {speaker}...")
+        logger.info(f"Generating audio segment {i}/{total_segments} for {speaker}...")
         resp = client.audio.speech.create(
             model=tts_model,
             voice=voice,
@@ -437,19 +584,47 @@ def generate_tts_audio(
         logger.info(f"Audio segment {i} written to {out_file}")
 
         data, sr = sf.read(out_file)
+        if sample_rate is None:
+            sample_rate = sr
+        elif sr != sample_rate:
+            raise ValueError(
+                f"Mismatched sample rates across generated segments: expected {sample_rate}, got {sr}"
+            )
         audio_segments.append(data)
+
+    if not audio_segments:
+        raise ValueError("No audio segments were generated from transcript.")
 
     audio_audio = np.concatenate(audio_segments)
     final_path = output_dir / f"audio.{format}"
-    sf.write(final_path, audio_audio, sr)
+    sf.write(final_path, audio_audio, sample_rate)
     logger.info(f"All audio segments concatenated and final audio saved to {final_path}")
     return str(final_path)
+
+
+def _load_transcript_file(transcript_file: str) -> List[Tuple[str, str]]:
+    with open(transcript_file, "r", encoding="utf-8") as f:
+        transcript_data = json.load(f)
+
+    if not isinstance(transcript_data, list):
+        raise ValueError("Transcript file must contain a JSON list.")
+
+    transcript: List[Tuple[str, str]] = []
+    for index, entry in enumerate(transcript_data, start=1):
+        if not isinstance(entry, dict):
+            raise ValueError(f"Transcript entry #{index} must be an object.")
+        speaker = entry.get("speaker")
+        text = entry.get("text")
+        if not speaker or not text:
+            raise ValueError(f"Transcript entry #{index} must include non-empty 'speaker' and 'text'.")
+        transcript.append((speaker, text))
+    return transcript
 
 # ========== MAIN ==========
 def generate_audio(
     pdf_path: str,
     output_dir: str = "./output",
-    llm_model: str = "qwen3:30b-a3b-instruct-2507-q4_K_M",
+    llm_model: str = "gemini-3-flash-preview:cloud",
     language: str = "english",
     format_type: Literal[
         "podcast", "narration", "interview", "panel-discussion", "summary", "article", "lecture",
@@ -459,11 +634,18 @@ def generate_audio(
         "normal", "formal", "casual", "enthusiastic", "serious", "humorous", "gen-z", "technical"
     ] = "normal",
     length: Literal["short", "medium", "long"] = "medium",
+    is_vlm: bool = False,
     num_speakers: Optional[int] = None,
     custom_preferences: Optional[str] = None,
     transcript_file: Optional[str] = None,
-):
-    logger.info(f"generate_audio called with parameters: pdf_path={pdf_path}, output_dir={output_dir}, llm_model={llm_model}, language={language}, format_type={format_type}, style={style}, length={length}, num_speakers={num_speakers}, custom_preferences={custom_preferences}, transcript_file={transcript_file}")
+)-> str:
+    logger.info(f"generate_audio called with parameters: pdf_path={pdf_path}, output_dir={output_dir}, llm_model={llm_model}, language={language}, format_type={format_type}, style={style}, length={length}, is_vlm={is_vlm}, num_speakers={num_speakers}, custom_preferences={custom_preferences}, transcript_file={transcript_file}")
+    if length not in ALLOWED_LENGTHS:
+        raise ValueError(f"Unsupported length '{length}'. Allowed values: {sorted(ALLOWED_LENGTHS)}")
+
+    if num_speakers is not None and num_speakers < 1:
+        raise ValueError("num_speakers must be at least 1 when provided.")
+
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -475,16 +657,14 @@ def generate_audio(
     # Step 1: Load transcript from file if provided, else generate
     if transcript_file is not None and Path(transcript_file).exists():
         logger.info(f"Loading transcript from JSON file: {transcript_file}")
-        with open(transcript_file, "r", encoding="utf-8") as f:
-            transcript_data = json.load(f)
-            # Expecting a list of dicts with "speaker" and "text"
-            transcript = [(entry["speaker"], entry["text"]) for entry in transcript_data]
+        transcript = _load_transcript_file(transcript_file)
     else:
         logger.info("Step 1 & 2: Extracting PDF text and generating transcript with LLM...")
         try:
             transcript = generate_transcript_from_pdf(
                 pdf_path, ollama_client, llm_model, language,
                 format_type=format_type, style=style, length=length,
+                is_vlm=is_vlm,
                 num_speakers=num_speakers, custom_preferences=custom_preferences
             )
             # Save as .txt
@@ -524,3 +704,4 @@ def generate_audio(
     audio_file = generate_tts_audio(transcript, kokoro_client, voices, output_dir)
 
     logger.info(f"✅ Audio generated at: {audio_file}")
+    return audio_file

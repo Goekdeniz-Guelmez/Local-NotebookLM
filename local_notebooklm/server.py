@@ -7,6 +7,7 @@ import os
 import shutil
 from pydantic import BaseModel
 import uuid
+from threading import Lock
 
 # Import the new audio generator
 from .processor import generate_audio
@@ -62,6 +63,17 @@ class AudioStatusResponse(BaseModel):
 
 # Dictionary to store job statuses
 job_status = {}
+job_status_lock = Lock()
+
+
+def set_job_status(job_id: str, data: dict) -> None:
+    with job_status_lock:
+        job_status[job_id] = data
+
+
+def get_job_info(job_id: str) -> Optional[dict]:
+    with job_status_lock:
+        return job_status.get(job_id)
 
 # Function to process audio in background using generate_audio
 def process_audio(
@@ -74,43 +86,32 @@ def process_audio(
     preference: Optional[str] = None,
     output_dir: str = "./output"
 ):
+    job_output_dir = os.path.join(output_dir, job_id)
     try:
-        success, result = generate_audio(
+        audio_path = generate_audio(
             pdf_path=pdf_path,
-            config_path=config_path,
-            format_type=format_type,
-            length=length,
-            style=style,
-            preference=preference,
-            output_dir=output_dir
+            output_dir=job_output_dir,
+            format_type=format_type.value,
+            length=length.value,
+            style=style.value,
+            custom_preferences=preference,
         )
-        
-        if success:
-            # Copy the final audio file to a persistent location
-            audio_filename = f"{job_id}_audio.wav"
-            final_audio_path = os.path.join(output_dir, audio_filename)
-            
-            # Check if the audio file exists
-            generated_audio_path = os.path.join(output_dir, "audio.wav")
-            if os.path.exists(generated_audio_path):
-                shutil.copy(generated_audio_path, final_audio_path)
-                job_status[job_id] = {
-                    "status": "completed", 
-                    "result": result,
-                    "audio_path": final_audio_path,
-                    "audio_url": f"/download-audio/{job_id}"
-                }
-            else:
-                job_status[job_id] = {
-                    "status": "completed", 
-                    "result": result,
-                    "error": "Audio file not found"
-                }
-        else:
-            job_status[job_id] = {"status": "failed", "error": "Processing failed"}
+
+        if not os.path.exists(audio_path):
+            raise FileNotFoundError(f"Audio file was reported but not found at '{audio_path}'")
+
+        set_job_status(
+            job_id,
+            {
+                "status": "completed",
+                "result": {"audio_path": audio_path},
+                "audio_path": audio_path,
+                "audio_url": f"/download-audio/{job_id}",
+            },
+        )
             
     except Exception as e:
-        job_status[job_id] = {"status": "failed", "error": str(e)}
+        set_job_status(job_id, {"status": "failed", "error": str(e)})
     
     # Clean up the temporary files
     try:
@@ -120,10 +121,6 @@ def process_audio(
         if config_path and os.path.exists(config_path):
             os.remove(config_path)
             
-        # Clean up generated audio file if exists
-        generated_audio_path = os.path.join(output_dir, "audio.wav")
-        if os.path.exists(generated_audio_path):
-            os.remove(generated_audio_path)
     except Exception as e:
         print(f"Error cleaning up: {str(e)}")
 
@@ -161,7 +158,7 @@ async def generate_audio_endpoint(
     os.makedirs(output_dir, exist_ok=True)
     
     # Update job status
-    job_status[job_id] = {"status": "processing"}
+    set_job_status(job_id, {"status": "processing"})
     
     # Add the task to background tasks
     background_tasks.add_task(
@@ -184,10 +181,9 @@ async def generate_audio_endpoint(
 
 @app.get("/job-status/{job_id}", response_model=AudioStatusResponse)
 async def get_job_status(job_id: str):
-    if job_id not in job_status:
+    job_info = get_job_info(job_id)
+    if job_info is None:
         raise HTTPException(status_code=404, detail="Job not found")
-    
-    job_info = job_status[job_id]
     
     return AudioStatusResponse(
         job_id=job_id,
@@ -198,10 +194,9 @@ async def get_job_status(job_id: str):
 
 @app.get("/download-audio/{job_id}")
 async def download_audio(job_id: str, background_tasks: BackgroundTasks):
-    if job_id not in job_status:
+    job_info = get_job_info(job_id)
+    if job_info is None:
         raise HTTPException(status_code=404, detail="Job not found")
-    
-    job_info = job_status[job_id]
     
     if job_info["status"] != "completed":
         raise HTTPException(status_code=400, detail="Job is not completed yet")
