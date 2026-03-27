@@ -2,6 +2,8 @@
 
 ![logo](logo.jpeg)
 
+NEW! A standalone-native app has been released [link](https://github.com/Goekdeniz-Guelmez/Local-Notebook-LM-App).
+
 A local AI-powered tool that converts PDF documents into engaging audio—such as podcasts or custom audio content—using local LLMs and TTS models.
 
 ## Features
