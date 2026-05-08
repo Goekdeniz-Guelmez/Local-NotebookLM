@@ -94,6 +94,29 @@ def _detect_image_mime(image_bytes: bytes) -> str:
     return "application/octet-stream"
 
 
+def _verify_ollama_model(client: OpenAI, model: str) -> None:
+    try:
+        available_models = [m.id for m in client.models.list().data]
+    except Exception as e:
+        error_msg = str(e).lower()
+        if any(k in error_msg for k in ("connection", "refused", "connect", "timeout")):
+            raise RuntimeError(
+                f"Cannot connect to Ollama at {client.base_url}. "
+                f"Please make sure Ollama is running. ({e})"
+            ) from e
+        logger.debug(f"Could not list Ollama models for validation: {e}")
+        return
+
+    if model not in available_models:
+        raise RuntimeError(
+            f"Ollama model '{model}' is not available locally.\n"
+            f"Installed models: {', '.join(available_models) if available_models else '(none)'}.\\n"
+            f"Pull it with: ollama pull {model}\n"
+            f"Or specify a different model with --llm_model <model_name>"
+        )
+
+
+
 def _extract_pdf_images_as_data_urls(pdf_path: str, max_images: int = 4) -> List[str]:
     data_urls: List[str] = []
     if max_images <= 0:
