@@ -100,7 +100,9 @@ You can run Local-NotebookLM using Docker for both the Web UI and API modes.
     docker run -e APP_MODE=api -p 8000:8000 local-notebooklm-ui
     ```
     The API server will be available at [http://localhost:8000](http://localhost:8000).
+
 ## Optional pre requisites
+
 ### Local TTS server
 - Follow one installation type (docker, docker-compose, uv) at https://github.com/remsky/Kokoro-FastAPI
 - Test in your browser that http://localhost:8880/v1 return the json: {"detail":"Not Found"}
@@ -314,17 +316,20 @@ The pipeline generates the following files:
    - Check if the PDF is password-protected
    - Ensure the PDF contains extractable text (not just images)
 
-2. **API Connection Errors**
+3. **LLM Call Fails**
+   - Ensure the LLM model exists
+
+4. **API Connection Errors**
    - Verify your API keys are correct
    - Check your internet connection
    - Ensure the API endpoints are accessible
 
-3. **Out of Memory Errors**
+5. **Out of Memory Errors**
    - Reduce the chunk size in the configuration
    - Use a smaller model
    - Close other memory-intensive applications
 
-4. **Audio Quality Issues**
+6. **Audio Quality Issues**
    - Try different TTS voices
    - Adjust the sample rate in the configuration
    - Check if the TTS server is running correctly
